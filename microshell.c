@@ -1,44 +1,34 @@
-#include <string.h>
 #include <stddef.h>
+#include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <stdio.h>
-
-int ft_strlen(char *s)
+//ft_strlen check lenght of string
+int ft_strlen(char *v)
 {
     int i = 0;
-
-    while (s[i])
+    while (v[i] != 0)
         i++;
     return (i);
 }
-
-void    ft_error_all(int i, char *s, char *value)
+//this function divide the error in two categories: with argument and note
+void    error(char *v, char *s, int type)
 {
-    if (i == 1)
-        write(2, s, ft_strlen(s));
-    else if (i == -1)
+    if (type == 1)
+        write(2, v, ft_strlen(v));
+    else if (type == -1)
     {
+        write(2, v, ft_strlen(v));
         write(2, s, ft_strlen(s));
-        write(2, value, ft_strlen(value));
-        write(2, "\n", 1);
     }
+    write(2, "\n", 1);
 }
 
-int    ft_do_cd(char **v, int i)
+//find possible pipe
+int valid_pipe(char **v, int i)
 {
-    if (v[i + 1] != NULL && v[i + 1][0] == ';')
-        ft_error_all(1, "error: cd: bad arguments\n", NULL);
-    else if (chdir(v[i + 1]) == -1)
-        ft_error_all(1, "error: cd: cannot change directory to ", v[i+ 1]);
-    return(i + 1);
-}
-
-int valid_pipe(int i, char **v)
-{
-    while (v[i] != NULL)
+    while (v[i] != NULL && v[i][0] != ';')
     {
         if (v[i][0] == '|')
             return (1);
@@ -47,116 +37,130 @@ int valid_pipe(int i, char **v)
     return (0);
 }
 
-void    ft_child(char **v, int i, int *fd, char **env)
+void    child(char **v, int i, char **env, int *fd)
 {
     int j = i;
-    while (v[j] != NULL && v[j][0] != '|' && v[j][0] != ';')
-        j++;
+    //now start duping
+    //first of first i need to close the other not used now end of the pipe in my case reading pipe(fd[0])
+    //the make my code write in the pipe(fd[1])
+    //end close that checking always possible errors
     if (close(fd[0]) == -1)
-        ft_error_all(1, "error: fatal\n", NULL);
+        error("error: fatal", NULL, 1);
+    while (v[j] != NULL && v[j][0] != ';' && v[j][0] != '|')
+        j++;
+    //make the the '|' ';' and NULL (NULL) so i can execute until it and in case i end up in ';' or null i write in the terminal
     if (v[j] != NULL && v[j][0] == '|')
     {
-        v[j] = NULL;
         if (dup2(fd[1], 1) == -1)
-            ft_error_all(1, "error: fatal\n", NULL);
+            error("error: fatal", NULL, 1);
     }
-    else if (v[j] != NULL && v[j][0] == ';')
-        v[j] = NULL;
+    v[j] = NULL;
     if (close(fd[1]) == -1)
-        ft_error_all(1, "error: fatal\n", NULL);
+        error("error: fatal", NULL, 1);
+    //we are duping so the output of the code is written and transported away by the pipe
+    //execute the command checking possible error
     if (execve(v[i], &v[i], env) == -1)
-        ft_error_all(-1, "error: cannot execute ", v[i]);
+        error("error: cannot execute ", v[i], -1);
     exit(1);
 }
 
-int update_pipe(char **v, int i)
+int    main(int c, char **v, char **env)
 {
-    while (v[i] != NULL && v[i][0] != ';')
-    {
-        if (v[i][0] == '|')
-        {
-            i++;
-            break ;
-        }
-        i++;
-    }
-    return (i);
-}
-
-int    ft_do_execution(char **v, int i, char **env)
-{
-    pid_t   pid = 0;
-    int fd[2];
-
-    if (valid_pipe(i, v) == 1)
-    {
-        while (v[i] != NULL && v[i][0] != ';')
-        {
-            if (pipe(fd) == -1)
-                ft_error_all(1, "error: fatal", NULL);
-            pid = fork();
-            if (pid == 0)
-                ft_child(v, i, fd, env);
-            else
-            {
-                if (close(fd[1]) == -1)
-                    ft_error_all(1, "error: fatal\n", NULL);
-                if (dup2(fd[0], 0) == -1)
-                    ft_error_all(1, "error: fatal\n", NULL);
-                if (close(fd[0]) == -1)
-                    ft_error_all(1, "error: fatal\n", NULL);
-                waitpid(pid, 0, 0);
-            }
-            i = update_pipe(v, i);
-        }
-    }
-    else
-    {
-        pid = fork();
-        if (pid == 0)
-        {
-            int j = i;
-            while (v[j] && v[j][0] != ';')
-                j++;
-            if (v[j] != NULL && v[j][0] == ';')
-            {
-                v[j] = NULL;
-                j++;
-            }
-            else
-                v[j] = NULL;
-            if (execve(v[i], &v[i], env) == -1)
-                ft_error_all(-1, "error: cannot execute ", v[i]);
-        }
-        else
-            waitpid(pid, 0, 0);
-    }
-    return (i);
-}
-
-int main(int c, char **v, char **env)
-{
-    c = c;
+    //initialize variable
     int i = 1;
-    while (v[i])
+    int j = 0;
+    (void)c;
+    pid_t   pid;
+    int     fd[2];
+    //in my case i don't use c so i eliminate in this way
+    //start loop
+    //check if there is a ';' in that case i skip this one at the start
+    while (v[i] != NULL && v[i][0] == ';')
+        i++;
+    while (v[i] != NULL)
     {
-        while (v[i] != NULL && v[i][0] == ';')
-            i++;
-        if (v[i] == NULL)
-            return (0);
+    //start check cd and pipe or execve single
         if (strcmp(v[i], "cd") == 0)
-            i = ft_do_cd(v, i);
-        else
-            i = ft_do_execution(v, i, env);
-        while (v[i])
         {
-            if (v[i][0] == ';')
-            {
-                i++;
-                break ;
-            }
-            i++;
+            //check invalid cd
+            if (v[i + 1] == NULL || v[i + 1][0] == ';')
+                error("error: cd: bad arguments", NULL, 1);
+            //execute cd if valid
+            else if (chdir(v[i + 1]) == -1)
+                error("error: cd: cannot change ", v[i + 1], -1);
         }
+        else
+        {
+            //try working on pipe and single command
+            //check if there is a pipe
+            if (valid_pipe(v, i) == 1)
+            {
+                while (v[i] != NULL && v[i][0] != ';')
+                {
+                    //create pipe for each child and father in loop checking if is valid
+                    if (pipe(fd) == -1)
+                        error("error: fatal", NULL, 1);
+                    //create fork check if valid
+                    pid = fork();
+                    if (pid == -1)
+                        error("error: fatal", NULL, 1);
+                    //split parent(> 0) and child(== 0)
+                    if (pid == 0)
+                        child(v, i, env, fd);
+                    else
+                    {
+                        //is the same as child execpt that we pass the input to the next child with this dup2
+                        if (close(fd[1]) == -1)
+                            error("error: fatal", NULL, 1);
+                        if (dup2(fd[0], 0) == -1)
+                            error("error: fatal", NULL, 1);
+                        if (close(fd[0]) == -1)
+                            error("error: fatal", NULL, 1);
+                        //then we wait the child
+                        waitpid(pid, 0, 0);
+                    }
+                    while (v[i] != NULL && v[i][0] != ';')
+                    {
+                        if (v[i][0] == '|')
+                        {
+                            i++;
+                            break ;
+                        }
+                        i++;
+                    }
+                }
+            }
+            else
+            {
+                //in case of single command i execute him in the terminal
+                //first i create a fork and check if valid
+                pid = fork();
+                if (pid == -1)
+                    error("error: fatal", NULL, 1);
+                //pid 0 = child
+                //pid > 0 parent
+                if (pid == 0)
+                {
+                    j = i;
+                    while (v[j] != NULL && v[j][0] != ';')
+                        j++;
+                    v[j] = NULL;
+                    //execute child if valid
+                    if (execve(v[i], &v[i], env) == -1)
+                        error("error cannot execute ", v[i], -1);
+                }
+                else
+                {
+                    //reach the past argumnt after the code that the child execute
+                    //parent wait end of child
+                    waitpid(pid, 0, 0);
+                }
+            }
+        }
+        //reach next argument to work with
+        while (v[i] != NULL && v[i][0] != ';')
+            i++;
+        //skip ';'
         while (v[i] != NULL && v[i][0] == ';')
             i++;
     }
